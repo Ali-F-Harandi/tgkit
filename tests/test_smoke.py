@@ -19,7 +19,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 def test_import_tgkit():
     """Top-level package imports."""
     import tgkit
-    assert tgkit.__version__ == "0.1.0"
+    # Version is sourced from package metadata (single source of truth:
+    # pyproject.toml) — just assert it is a valid semver string
+    import re
+    assert re.match(r"^[0-9]+\.[0-9]+\.[0-9]+$", tgkit.__version__), tgkit.__version__
     assert tgkit.__author__ == "Ali-F-Harandi"
 
 

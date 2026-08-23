@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "tgkit"
-version = "0.2.0"
+version = "0.2.1"
 description = "Unified Telegram toolkit: scan, copy, forward, vault, library"
 readme = "README.md"
 requires-python = ">=3.10"

@@ -220,3 +220,92 @@ def test_save_resume_atomic_no_partial_state_on_crash(tmp_path):
     # Simulate a crash mid-write: leave a tmp file, don't rename
     state_path.with_suffix(".tmp").write_text("{partial json")
     assert state_path.read_text() == before  # original untouched
+
+
+# ============================================================================
+# Library DB persistence of vault crypto metadata (v0.2.1)
+# ============================================================================
+
+def test_library_insert_persists_crypto_metadata(tmp_path):
+    """REGRESSION: vault uploads must persist manifest_msg_id, encrypted,
+    compressed, encryption_salt, password_hash and session_id to the library
+    table (they were silently dropped before, leaving encrypted=0 records
+    for encrypted files)."""
+    from tgkit.db.connection import Database
+    from tgkit.db.store import LibraryStore, ChannelStore
+
+    db = Database(tmp_path / "t.db")
+    db.init()
+    ChannelStore(db).upsert(channel_id=-100, role="destination")
+    store = LibraryStore(db)
+
+    lid = store.insert(
+        name="x.bin", size=100, sha256="aa", total_parts=2, chunk_size=50,
+        message_ids=[1, 2], main_channel=-100, share_link="l1", kind="vault",
+        manifest_msg_id=9, encrypted=True, compressed=True,
+        has_chunk_header=True, encryption_salt="c2FsdA==",
+        password_hash="h" * 64, original_size=100, session_id="s1",
+    )
+    row = store.get(lid)
+    assert row["encrypted"] == 1
+    assert row["compressed"] == 1
+    assert row["manifest_msg_id"] == 9
+    assert row["encryption_salt"] == "c2FsdA=="
+    assert row["password_hash"] == "h" * 64
+    assert row["session_id"] == "s1"
+
+
+def test_library_reupload_refreshes_flags(tmp_path):
+    """Re-uploading the same sha256 must refresh crypto flags, not leave
+    stale encrypted=1 behind (and vice versa)."""
+    from tgkit.db.connection import Database
+    from tgkit.db.store import LibraryStore, ChannelStore
+
+    db = Database(tmp_path / "t.db")
+    db.init()
+    ChannelStore(db).upsert(channel_id=-100, role="destination")
+    store = LibraryStore(db)
+
+    lid = store.insert(
+        name="x.bin", size=100, sha256="aa", total_parts=2, chunk_size=50,
+        message_ids=[1, 2], main_channel=-100, share_link="l1", kind="vault",
+        encrypted=True, session_id="s1",
+    )
+    lid2 = store.insert(
+        name="x.bin", size=100, sha256="aa", total_parts=2, chunk_size=50,
+        message_ids=[3, 4], main_channel=-100, share_link="l2", kind="vault",
+        manifest_msg_id=10, encrypted=False, session_id="s2",
+    )
+    assert lid2 == lid  # updated, not duplicated
+    row = store.get(lid)
+    assert row["encrypted"] == 0
+    assert row["manifest_msg_id"] == 10
+    assert row["session_id"] == "s2"
+
+
+def test_migration_v2_adds_password_hash(tmp_path):
+    """Legacy DBs (library without password_hash) get the column via
+    migration v2 on Database.init()."""
+    import sqlite3
+    from tgkit.db.connection import Database
+
+    old = tmp_path / "old.db"
+    conn = sqlite3.connect(old)
+    conn.executescript(
+        "CREATE TABLE library (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT,"
+        " size INTEGER, sha256 TEXT, total_parts INTEGER, chunk_size INTEGER,"
+        " message_ids TEXT, manifest_msg_id INTEGER, description TEXT,"
+        " caption TEXT, file_extension TEXT, mime_type TEXT, main_channel INTEGER,"
+        " share_link TEXT, session_id TEXT, uploaded_at INTEGER,"
+        " last_accessed_at INTEGER, status TEXT, encrypted INTEGER,"
+        " compressed INTEGER, has_chunk_header INTEGER, encryption_salt TEXT,"
+        " original_size INTEGER, kind TEXT);"
+    )
+    conn.commit()
+    conn.close()
+
+    db = Database(old)
+    db.init()
+
+    cols = [r[1] for r in sqlite3.connect(old).execute("PRAGMA table_info(library)")]
+    assert "password_hash" in cols

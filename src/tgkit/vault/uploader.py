@@ -328,6 +328,14 @@ class VaultUploader:
                 share_link=share_link,
                 kind="vault",
                 description=description,
+                manifest_msg_id=manifest_msg.id,
+                encrypted=bool(encryptor),
+                compressed=compress,
+                has_chunk_header=True,
+                encryption_salt=encryption_salt or None,
+                password_hash=password_hash or None,
+                original_size=file_size,
+                session_id=session_id,
             )
 
         return {

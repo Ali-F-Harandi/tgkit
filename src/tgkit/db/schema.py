@@ -238,4 +238,8 @@ MIGRATIONS = [
     # (version, description, sql)
     # Example for future:
     # (2, "add manga_name column to messages", "ALTER TABLE messages ADD COLUMN manga_name TEXT"),
+    # v2: library.password_hash — lets an interrupted encrypted upload verify
+    # the resumed password against the one used for already-uploaded chunks.
+    (2, "add password_hash column to library (vault resume support)",
+     "ALTER TABLE library ADD COLUMN password_hash TEXT"),
 ]

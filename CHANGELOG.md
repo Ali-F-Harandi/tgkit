@@ -4,6 +4,41 @@ All notable changes to tgkit are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] — 2026-08-23
+
+Live-tested end-to-end against a real channel (5 bots, MTProto Tier 2):
+encrypted 10-chunk upload → surgical resume from 7/10 chunks (salt reuse
+verified by SHA256 round-trip) → parallel download → wrong-password fail-fast
+→ `--from-scan` copy without forward header → DB sync.
+
+### Fixed
+
+- **`tgkit --version` showed a stale hardcoded version** — `__version__` is
+  now read from installed package metadata (single source of truth:
+  `pyproject.toml`), with a fallback for source checkouts.
+- **vault uploads didn't persist crypto metadata to the library DB** —
+  `manifest_msg_id`, `encrypted`, `compressed`, `has_chunk_header`,
+  `encryption_salt`, `original_size` and `session_id` were silently dropped,
+  leaving `encrypted=0` records for encrypted files. `LibraryStore.insert`
+  now accepts and persists all of them, and a re-upload of the same SHA256
+  refreshes the flags instead of leaving stale values behind.
+- **DB schema**: added `library.password_hash` column via migration v2
+  (additive `ALTER TABLE`, applied automatically on `Database.init()`; fresh
+  and legacy databases both covered) — enables offline resume verification.
+
+### Changed
+
+- Test suite grew to 56 tests (library persistence, flag refresh on
+  re-upload, and migration v2 regression tests).
+
+### Known issues
+
+- pyrofork occasionally prints a cosmetic `sqlite3.ProgrammingError:
+  Cannot operate on a closed database` traceback at process exit when 5
+  clients flush their session files simultaneously. Results are unaffected;
+  the error comes from pyrofork's exit-time teardown, outside tgkit's
+  control.
+
 ## [0.2.0] — 2026-08-23
 
 ### Fixed

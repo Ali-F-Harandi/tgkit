@@ -374,10 +374,19 @@ class LibraryStore:
                description: str | None = None,
                caption: str | None = None,
                file_extension: str | None = None,
-               mime_type: str | None = None) -> int:
+               mime_type: str | None = None,
+               encrypted: bool = False,
+               compressed: bool = False,
+               has_chunk_header: bool = True,
+               encryption_salt: str | None = None,
+               original_size: int | None = None,
+               password_hash: str | None = None,
+               session_id: str | None = None) -> int:
         """Insert a library entry. Returns library ID.
 
-        If sha256 already exists, updates the existing entry instead.
+        If sha256 already exists, updates the existing entry instead
+        (including encryption metadata — a re-upload must not leave stale
+        encrypted/compressed flags behind).
         """
         with self.db.connect() as conn:
             # Check if sha256 exists
@@ -392,13 +401,20 @@ class LibraryStore:
                         name = ?, size = ?, total_parts = ?, chunk_size = ?,
                         message_ids = ?, manifest_msg_id = ?, description = ?,
                         main_channel = ?, share_link = ?,
-                        uploaded_at = ?, status = 'uploaded', kind = ?
+                        uploaded_at = ?, status = 'uploaded', kind = ?,
+                        encrypted = ?, compressed = ?, has_chunk_header = ?,
+                        encryption_salt = ?, original_size = ?,
+                        password_hash = ?, session_id = ?
                     WHERE id = ?
                 """, (
                     name, size, total_parts, chunk_size,
                     json.dumps(message_ids), manifest_msg_id, description,
                     main_channel, share_link,
                     int(time.time()), kind,
+                    1 if encrypted else 0, 1 if compressed else 0,
+                    1 if has_chunk_header else 0,
+                    encryption_salt, original_size,
+                    password_hash, session_id,
                     existing[0]
                 ))
                 return existing[0]
@@ -409,14 +425,20 @@ class LibraryStore:
                         message_ids, manifest_msg_id, description, caption,
                         file_extension, mime_type,
                         main_channel, share_link, session_id,
-                        uploaded_at, status, kind
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'uploaded', ?)
+                        uploaded_at, status, kind,
+                        encrypted, compressed, has_chunk_header,
+                        encryption_salt, original_size, password_hash
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'uploaded', ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     name, size, sha256, total_parts, chunk_size,
                     json.dumps(message_ids), manifest_msg_id, description, caption,
                     file_extension, mime_type,
-                    main_channel, share_link, None,
-                    int(time.time()), kind
+                    main_channel, share_link, session_id,
+                    int(time.time()), kind,
+                    1 if encrypted else 0, 1 if compressed else 0,
+                    1 if has_chunk_header else 0,
+                    encryption_salt, original_size,
+                    password_hash
                 ))
                 return cur.lastrowid
 

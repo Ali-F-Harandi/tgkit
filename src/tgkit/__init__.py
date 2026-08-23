@@ -7,7 +7,21 @@ Public API surface. Import from here for stable access:
 
 from __future__ import annotations
 
-__version__ = "0.1.0"
+# Single source of truth: pyproject.toml. Read lazily so the package can be
+# imported even if metadata is unavailable (e.g. vendored source checkout).
+def _get_version() -> str:
+    try:
+        from importlib.metadata import version, PackageNotFoundError
+        try:
+            return version("tgkit")
+        except PackageNotFoundError:
+            pass
+    except ImportError:
+        pass
+    return "0.2.1"  # fallback for source checkouts without metadata
+
+
+__version__ = _get_version()
 __author__ = "Ali-F-Harandi"
 __license__ = "MIT"
 

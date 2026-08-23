@@ -4,8 +4,8 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 ![Python ≥3.10](https://img.shields.io/badge/python-%E2%89%A53.10-blue.svg)
-![Version](https://img.shields.io/badge/version-0.2.0-green.svg)
-![Tests](https://img.shields.io/badge/tests-53%20passed-brightgreen.svg)
+![Version](https://img.shields.io/badge/version-0.2.1-green.svg)
+![Tests](https://img.shields.io/badge/tests-56%20passed-brightgreen.svg)
 
 [فارسی](#فارسی) | [English](#english)
 
