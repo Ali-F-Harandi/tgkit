@@ -1,0 +1,56 @@
+{
+  "version": 1,
+  "api": {
+    "api_id": 0,
+    "api_hash": "",
+    "session_dir": "~/.tgkit/sessions"
+  },
+  "bots": [
+    {"token": "123456789:AAExampleBotTokenHere", "username": "example_bot"}
+  ],
+  "channels": {
+    "default_destination": null,
+    "vault_main": null,
+    "vault_temp": null,
+    "vault_storage": [],
+    "db_sync": null
+  },
+  "vault": {
+    "chunk_size_mb": 19,
+    "upload_delay": 0.3,
+    "download_delay": 0.2,
+    "parallel_workers": 4,
+    "default_manifest_type": "text",
+    "large_file_threshold_mb": 45,
+    "compression": true,
+    "encryption_algorithm": "aes-256-gcm",
+    "encryption_kdf": "pbkdf2-sha512",
+    "encryption_iterations": 600000
+  },
+  "throttle": {
+    "min_interval": 0.3,
+    "max_interval": 30.0,
+    "backoff_factor": 1.5,
+    "decay_factor": 0.9,
+    "decay_every": 10,
+    "per_channel_cooldown": 0.2
+  },
+  "scan": {
+    "batch_size": 50,
+    "concurrency": 5,
+    "save_every_n_batches": 10,
+    "replies": 0,
+    "checkpoint_interval": 250
+  },
+  "db": {
+    "enabled": true,
+    "path": null,
+    "auto_sync": false,
+    "sync_multipart": false,
+    "sync_msg_id": null
+  },
+  "logging": {
+    "level": "INFO",
+    "file": null
+  }
+}

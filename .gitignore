@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+build/
+dist/
+.eggs/
+.venv/
+venv/
+env/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+
+# tgkit state — NEVER commit (may contain tokens / session keys)
+# Config is stored at ~/.tgkit/config.json but a local copy must never leak
+config.json
+*.session
+*.session-journal
+*.db
+*.db-wal
+*.db-shm
+tgkit.db*
+
+# Vault state files
+*.vault_resume.json
+*.vault_resume.json.tmp
+*.downloading
+
+# Logs / scratch
+*.log
+/tmp/
