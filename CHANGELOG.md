@@ -4,6 +4,64 @@ All notable changes to tgkit are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] — 2026-10-05
+
+The "file #11 is bigger" release. The scenario: an agent (or a human)
+downloads ten small files fine, then file #11 is 122 MB and everything
+collapses — wrong transport, missing packages, unconfigured environment.
+v0.3.0 makes that class of failure structurally impossible: sizes are
+checked BEFORE any transfer, transports switch automatically, and one
+command diagnoses the whole environment.
+
+### Added
+
+- **`tgkit send <files> --to <channel>`** — plain-file upload via MTProto
+  (≤ 2 GB each). Refuses > 2 GB with a pointer to `vault upload`; prints a
+  Bot-API-50MB note on big-but-legal files; live progress bars; per-file
+  share links; diagnoses the "bot not admin" case in plain language.
+  Previously there was NO plain upload command at all.
+- **`tgkit doctor [--deep]`** — one-command environment check: Python
+  version, all required packages, config file, api_id/api_hash, every bot
+  token (validated live via getMe), network, session files, disk space,
+  and (with `--deep`) a real MTProto login. Every ✗ prints a HOW-TO-FIX
+  line. Runs even when the config file is missing — diagnosing a broken
+  setup is its job, not a crash.
+- **`limits.py`** — single source of truth for Telegram size caps
+  (Bot API 20 MB down / 50 MB up, MTProto 2 GB) with pure routing helpers
+  (`download_route` / `upload_route`) and human-readable console notes.
+  All size-aware commands consult it; 16 new unit tests cover it.
+- **Smart size routing everywhere**: `fetch` announces "over the Bot API's
+  20 MB cap — running through MTProto automatically" on big files, checks
+  free disk space BEFORE downloading, and refuses > 2 GB with the exact
+  command to use instead. `vault upload` explains chunking when the file
+  exceeds 50 MB.
+- **Converging download commands**: `fetch` on a vault manifest
+  auto-switches to vault download (with `--password` passthrough);
+  `vault download` on a plain file auto-switches to a direct download
+  instead of dying with `Failed to fetch or parse manifest`. Either
+  command now handles either kind of link.
+- **Friendly startup errors** (`start_pool_with_help`): MTProto login
+  failures are translated into cause + fix (wrong api_id → my.telegram.org,
+  stale session → `rm -rf ~/.tgkit/sessions/*`, network → proxy hint)
+  instead of raw tracebacks. ImportErrors at dispatch print
+  "pip install -e ." instead of a stack dump.
+- **Beginner guides for humans**: `docs/guide.md` (English) and
+  `docs/guide-fa.md` (فارسی) — full walkthrough from zero (where to get
+  api_id, how to create a bot) to download/upload/troubleshooting, written
+  for people who have never used a Telegram API.
+
+### Changed
+
+- README rewritten tone: tgkit is now "for humans AND AI agents", with the
+  file-size-limits table front and center and links to the new guides.
+- `fetch` validates links/size/disk before starting bots and prints a
+  per-file size note when the Bot API path would have failed.
+
+### Removed
+
+- **AGENTS.md** — agent-specific instructions folded into the tool itself
+  (smart routing + doctor). The repo now has ONE set of docs for everyone.
+
 ## [0.2.1] — 2026-08-23
 
 Live-tested end-to-end against a real channel (5 bots, MTProto Tier 2):

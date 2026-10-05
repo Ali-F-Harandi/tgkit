@@ -1,11 +1,13 @@
 # tgkit
 
-**Unified Telegram toolkit for AI agents** — scan, copy, forward, vault, and manage Telegram channels through a single CLI.
+**Unified Telegram toolkit** — download, upload, scan, copy, forward, vault, and manage Telegram channels through a single CLI. Works for humans and AI agents alike.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 ![Python ≥3.10](https://img.shields.io/badge/python-%E2%89%A53.10-blue.svg)
-![Version](https://img.shields.io/badge/version-0.2.1-green.svg)
-![Tests](https://img.shields.io/badge/tests-56%20passed-brightgreen.svg)
+![Version](https://img.shields.io/badge/version-0.3.0-green.svg)
+![Tests](https://img.shields.io/badge/tests-72%20passed-brightgreen.svg)
+
+**New to tgkit?** Read the beginner guide: **[English](docs/guide.md)** | **[فارسی](docs/guide-fa.md)** — written for everyone, no Telegram API knowledge needed.
 
 [فارسی](#فارسی) | [English](#english)
 
@@ -15,15 +17,29 @@
 
 ### What is tgkit?
 
-tgkit is a CLI tool designed to be operated by **AI agents** (not humans). It provides a complete toolkit for working with Telegram channels:
+tgkit is a CLI tool for working with Telegram channels — designed to be easy enough for **anyone** to use and predictable enough for **AI agents** to operate:
 
+- **Fetch** — download plain files by message link via MTProto (up to 2 GB, no 20 MB Bot API limit)
+- **Send** — upload local files to a channel via MTProto (up to 2 GB, no 50 MB Bot API limit)
+- **Doctor** — one-command environment check that tells you exactly what to fix
 - **Scan** channel history (batched + concurrent, 1000+ msg/s)
 - **Copy** messages without "Forwarded from" header (via `file_id`)
 - **Forward** messages (with header, native Telegram forward)
 - **Reupload** files (download + re-upload, breaks copyright linkage)
 - **Build posts** with linked-list captions (auto-split across multiple messages)
-- **Vault** — encrypted chunked storage (AES-256-GCM, 2 GB files)
+- **Vault** — encrypted chunked storage (AES-256-GCM, any total size)
 - **Database** — every operation logged to SQLite, synced to a Telegram channel
+
+### File-size limits (the #1 gotcha, solved)
+
+Telegram's "easy" Bot API secretly caps downloads at **20 MB** and uploads at **50 MB**. That's why tools that work fine on ten small files suddenly die on file #11. tgkit checks every file size up front and routes automatically — big files go through MTProto (the protocol real Telegram clients use), and oversized files (> 2 GB) are refused with a pointer to `vault upload` (which chunks and has no total limit):
+
+| Operation | Bot API (most tools) | tgkit fetch/send | tgkit vault |
+|---|---|---|---|
+| Download | 20 MB | **2 GB** | unlimited (chunked) |
+| Upload | 50 MB | **2 GB** | unlimited (chunked) |
+
+When a limit matters, the console says so — e.g. `fetch` on a 122 MB file prints: *"over the Bot API's 20 MB download cap … automatically running through MTProto"*. Nothing fails silently.
 
 ### Two-Tier Design
 
@@ -46,9 +62,8 @@ tgkit init
 tgkit bot add 8866132706:AAH_xxx...
 tgkit bot add 8857297766:AAGJxxx...
 
-# Verify
-tgkit status
-tgkit bot test
+# Verify — checks packages, config, tokens, network and prints fixes
+tgkit doctor
 
 # Register channels
 tgkit channel add @yxafile --role source
@@ -57,6 +72,12 @@ tgkit channel add -1003873843444 --role db_sync
 
 # Scan a channel
 tgkit scan run https://t.me/yxafile/43966 --output scan.json
+
+# Download plain files by link (any size up to 2 GB — NOT the Bot API 20 MB path)
+tgkit fetch https://t.me/c/123/456 https://t.me/c/123/457 --out ./downloads
+
+# Upload local files to a channel (up to 2 GB each — NOT the Bot API 50 MB path)
+tgkit send report.zip video.mkv --to @mychannel --caption "Backup"
 
 # Copy from scan results (killer feature)
 tgkit copy --from-scan 1 --filter "ext=.zip"
@@ -79,11 +100,14 @@ tgkit vault download https://t.me/c/123/456 --resume
 | Command | Description |
 |---------|-------------|
 | `tgkit init` | Create config file |
+| `tgkit doctor` | Environment health-check (packages, config, tokens, network) with fix hints |
 | `tgkit status` | Show capabilities + config + DB state |
 | `tgkit stats` | Show overall statistics |
 | `tgkit bot add/list/remove/test` | Bot management |
 | `tgkit channel add/list/remove` | Channel management |
 | `tgkit scan run/resume/status` | Scan channel history |
+| `tgkit fetch <links>` | Download plain files by link via MTProto (≤ 2 GB, no 20 MB Bot API limit) |
+| `tgkit send <files>` | Upload local files via MTProto (≤ 2 GB each, no 50 MB Bot API limit) |
 | `tgkit copy/forward/reupload` | Copy (no header), forward (header), reupload (break copyright) |
 | `tgkit post create` | Build linked-list posts with many links |
 | `tgkit edit/delete` | Edit/delete messages in-place |
@@ -98,6 +122,10 @@ tgkit vault download https://t.me/c/123/456 --resume
 ### Key Features
 
 - **`--from-scan`**: Pull messages from DB by scan_id + filter — no manual link lists
+- **Smart size routing**: every download/upload path checks the file size FIRST (`src/tgkit/limits.py`). ≤ 20/50 MB is fine anywhere; above that the command automatically uses MTProto and says so in the console; above 2 GB it refuses with the exact command to use instead (`vault upload`).
+- **Converging download commands**: `fetch` on a vault manifest auto-switches to vault download; `vault download` on a plain file auto-switches to a direct download. Either command downloads either kind of link — the old cryptic `Failed to fetch or parse manifest` is gone.
+- **`tgkit doctor`**: one command checks Python, packages, config, credentials, every bot token (live), network, sessions, and disk space — each failure prints a HOW-TO-FIX line. Runs even with a missing config, because diagnosing a broken setup is its job.
+- **Friendly startup errors**: MTProto auth failures (wrong api_id, stale sessions, no network) print plain-language causes and fixes instead of raw tracebacks (`start_pool_with_help`).
 - **`--continue` mode**: Scan results are uploaded to a channel every N messages (configurable). If interrupted, resume with `--continue-link` — the tool downloads the checkpoint, finds where it stopped, and continues.
 - **Vault resume**: Interrupted vault uploads/downloads can be resumed (`--resume`). Resume state includes the encryption salt, so resuming an ENCRYPTED upload reuses the original key instead of corrupting the file (a bug the predecessor tg-vault had).
 - **Bounded-memory downloads**: Chunks are streamed to disk in order as they arrive — a 2 GB vault file no longer needs 2 GB of RAM.
@@ -119,6 +147,7 @@ posts/          PostBuilder (linked-list captions)
 vault/          AES-256-GCM + TGV1 header + chunked upload/download
 db/             SQLite (WAL) + Store (CRUD) + Sync (Telegram channel)
 capabilities.py Tier detection (Tier 1 vs Tier 2)
+limits.py       Size limits + automatic transport routing (20 MB / 50 MB / 2 GB)
 ```
 
 ### Requirements
@@ -127,6 +156,8 @@ capabilities.py Tier detection (Tier 1 vs Tier 2)
 - pyrofork (NOT vanilla pyrogram — required for 64-bit channel IDs)
 - A Telegram bot token (from [@BotFather](https://t.me/BotFather))
 - api_id + api_hash (from [my.telegram.org](https://my.telegram.org)) for Tier 2
+
+Full beginner walkthrough (with where to get each key): **[docs/guide.md](docs/guide.md)**
 
 ### Security
 
@@ -164,15 +195,31 @@ MIT — see [LICENSE](LICENSE). Changes are tracked in [CHANGELOG.md](CHANGELOG.
 
 ### tgkit چیست؟
 
-tgkit یک ابزار خط فرمان (CLI) است که برای **عملیات توسط هوش مصنوعی** طراحی شده است. این ابزار یک جعبه‌ابزار کامل برای کار با کانال‌های تلگرام ارائه می‌دهد:
+tgkit یک ابزار خط فرمان (CLI) برای کار با کانال‌های تلگرام است — به اندازه‌ی کافی ساده که **هر کسی** بتواند ازش استفاده کند و به اندازه‌ی کافی قابل پیش‌بینی که **ایجنت‌های هوش مصنوعی** هم بتوانند با آن کار کنند:
 
+- **Fetch** — دانلود فایل‌های عادی از روی لینک پیام با MTProto (تا ۲ گیگابایت، بدون سقف ۲۰ مگابایتی Bot API)
+- **Send** — آپلود فایل‌های محلی به کانال با MTProto (تا ۲ گیگابایت، بدون سقف ۵۰ مگابایتی Bot API)
+- **Doctor** — چک محیط با یک دستور که دقیقاً می‌گوید چه چیزی را چطور درست کنی
 - **اسکن** تاریخچه کانال (دسته‌ای + همزمان، 1000+ پیام در ثانیه)
 - **کپی** پیام‌ها بدون هدر «Forwarded from» (از طریق `file_id`)
 - **فوروارد** پیام‌ها (با هدر، فوروارد بومی تلگرام)
 - **ری‌آپلود** فایل‌ها (دانلود + آپلود مجدد، شکستن پیوند کپی‌رایت)
 - **ساخت پست** با کپشن‌های لیست پیوندی (تقسیم خودکار بین چندین پیام)
-- **Vault** — ذخیره‌سازی chunked رمزنگاری‌شده (AES-256-GCM، فایل‌های ۲ گیگابایتی)
+- **Vault** — ذخیره‌سازی chunked رمزنگاری‌شده (AES-256-GCM، بدون سقف حجم کل)
 - **پایگاه داده** — هر عملیات در SQLite ثبت می‌شود و با کانال تلگرام همگام‌سازی می‌گردد
+
+راهنمای کامل فارسی برای افراد عادی (بدون نیاز به دانش API): **[docs/guide-fa.md](docs/guide-fa.md)**
+
+### محدودیت‌های حجم فایل (مشکل شماره‌ی یک، حل شد)
+
+Bot API «ساده‌ی» تلگرام به‌صورت پنهان دانلود را به **۲۰ مگابایت** و آپلود را به **۵۰ مگابایت** محدود می‌کند. به همین دلیل ابزارهایی که روی ده فایل کوچک درست کار می‌کنند، سر فایل یازدهم ناگهان می‌شکنند. tgkit حجم هر فایل را **قبل از هر کاری** چک می‌کند و خودکار مسیر را عوض می‌کند — فایل‌های بزرگ از طریق MTProto (همان پروتکل کلاینت‌های اصلی تلگرام) می‌روند و فایل‌های بالای ۲ گیگ با پیام واضح به `vault upload` (که تکه‌تکه می‌کند و سقف کل ندارد) ارجاع داده می‌شوند:
+
+| عملیات | Bot API (ابزارهای معمولی) | tgkit fetch/send | tgkit vault |
+|---|---|---|---|
+| دانلود | ۲۰ مگابایت | **۲ گیگابایت** | نامحدود (تکه‌ای) |
+| آپلود | ۵۰ مگابایت | **۲ گیگابایت** | نامحدود (تکه‌ای) |
+
+وقتی محدودیتی موضوعیت داشته باشد، خودش در کنسول اعلام می‌شود — مثلاً `fetch` روی فایل ۱۲۲ مگابایتی می‌گوید: «بیش از سقف دانلود ۲۰ مگابایتی Bot API … به‌صورت خودکار از MTProto استفاده می‌شود». هیچ خطایی بی‌صدا رد نمی‌شود.
 
 ### طراحی دو سطحی
 
@@ -195,9 +242,8 @@ tgkit init
 tgkit bot add 8866132706:AAH_xxx...
 tgkit bot add 8857297766:AAGJxxx...
 
-# بررسی
-tgkit status
-tgkit bot test
+# بررسی سلامت — پکیج‌ها، کانفیگ، توکن‌ها و شبکه را چک می‌کند و راه حل چاپ می‌کند
+tgkit doctor
 
 # ثبت کانال‌ها
 tgkit channel add @yxafile --role source
@@ -206,6 +252,12 @@ tgkit channel add -1003873843444 --role db_sync
 
 # اسکن یک کانال
 tgkit scan run https://t.me/yxafile/43966 --output scan.json
+
+# دانلود فایل‌های عادی از لینک (تا ۲ گیگ — نه مسیر ۲۰ مگابایتی Bot API)
+tgkit fetch https://t.me/c/123/456 https://t.me/c/123/457 --out ./downloads
+
+# آپلود فایل محلی به کانال (تا ۲ گیگ برای هر فایل — نه مسیر ۵۰ مگابایتی Bot API)
+tgkit send report.zip video.mkv --to @mychannel --caption "بکاپ"
 
 # کپی از نتایج اسکن (قابلیت کلیدی)
 tgkit copy --from-scan 1 --filter "ext=.zip"
@@ -228,11 +280,14 @@ tgkit vault download https://t.me/c/123/456 --resume
 | دستور | توضیح |
 |---------|-------|
 | `tgkit init` | ایجاد فایل کانفیگ |
+| `tgkit doctor` | چک سلامت محیط (پکیج‌ها، کانفیگ، توکن‌ها، شبکه) همراه با راه حل |
 | `tgkit status` | نمایش قابلیت‌ها + کانفیگ + وضعیت DB |
 | `tgkit stats` | نمایش آمار کلی |
 | `tgkit bot add/list/remove/test` | مدیریت ربات |
 | `tgkit channel add/list/remove` | مدیریت کانال |
 | `tgkit scan run/resume/status` | اسکن تاریخچه کانال |
+| `tgkit fetch <links>` | دانلود فایل عادی از لینک با MTProto (تا ۲ گیگ، بدون سقف ۲۰ مگ Bot API) |
+| `tgkit send <files>` | آپلود فایل محلی با MTProto (تا ۲ گیگ برای هر فایل، بدون سقف ۵۰ مگ Bot API) |
 | `tgkit copy/forward/reupload` | کپی (بدون هدر)، فوروارد (با هدر)، ری‌آپلود (شکستن کپی‌رایت) |
 | `tgkit post create` | ساخت پست با لیست پیوندی |
 | `tgkit edit/delete` | ویرایش/حذف پیام در‌جا |
@@ -247,6 +302,10 @@ tgkit vault download https://t.me/c/123/456 --resume
 ### ویژگی‌های کلیدی
 
 - **`--from-scan`**: گرفتن پیام‌ها از DB با scan_id + فیلتر — نیازی به لیست لینک دستی نیست
+- **مسیریابی هوشمند حجم**: همه‌ی مسیرهای دانلود/آپلود ابتدا حجم فایل را چک می‌کنند (`src/tgkit/limits.py`). زیر ۲۰/۵۰ مگ مشکلی نیست؛ بالای آن دستور خودکار از MTProto استفاده می‌کند و در کنسول اعلام می‌کند؛ بالای ۲ گیگ با ذکر دقیق دستور جایگزین (`vault upload`) رد می‌شود.
+- **همگرایی دستورات دانلود**: اگر `fetch` روی لینک vault بیفتد، خودکار به حالت vault می‌رود؛ اگر `vault download` روی فایل عادی بیفتد، خودکار مستقیم دانلود می‌کند. هر دو دستور هر دو نوع لینک را دانلود می‌کنند — خطای مبهم قدیمی `Failed to fetch or parse manifest` حذف شد.
+- **`tgkit doctor`**: با یک دستور، پایتون، پکیج‌ها، کانفیگ، کلیدها، تک‌تک توکن‌های بات‌ها (زنده)، شبکه، نشست‌ها و فضای دیسک چک می‌شوند — برای هر ایراد، خط «چطور درست کنی» چاپ می‌شود. حتی بدون کانفیگ هم اجرا می‌شود، چون تشخیص محیط خراب دقیقاً کار خودش است.
+- **خطاهای راه‌اندازی دوستانه**: خطاهای لاگین MTProto (‏api_id اشتباه، نشست خراب، قطعی شبکه) به زبان ساده با راه حل چاپ می‌شوند، نه traceback خام.
 - **حالت `--continue`**: نتایج اسکن هر N پیام (قابل تنظیم) در کانال آپلود می‌شود. اگر قطع شد، با `--continue-link` ادامه دهید — ابزار چک‌پوینت را دانلود می‌کند و از جایی که مانده ادامه می‌دهد.
 - **ادامه (Resume) در Vault**: آپلود/دانلود قطع‌شده با `--resume` ادامه می‌یابد. state شامل salt رمزنگاری است، بنابراین ادامه‌ی آپلود رمزنگاری‌شده از همان کلید قبلی استفاده می‌کند، نه اینکه فایل را خراب کند (باگی که نسخه قبلی tg-vault داشت).
 - **دانلود با حافظه محدود**: chunkها به‌محض رسیدن به‌ترتیب روی دیسک نوشته می‌شوند — فایل ۲ گیگابایتی دیگر به ۲ گیگ رم نیاز ندارد.

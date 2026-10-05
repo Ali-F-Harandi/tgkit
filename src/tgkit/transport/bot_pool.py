@@ -21,6 +21,59 @@ from tgkit.transport.throttle import ThrottlePolicy, ChannelCooldown
 logger = logging.getLogger(__name__)
 
 
+async def start_pool_with_help(pool: "AsyncBotPool", console=None) -> bool:
+    """Start a bot pool, translating startup failures into plain-language help.
+
+    Returns True on success. On failure prints WHAT broke and HOW to fix it
+    (missing/wrong credentials, stale sessions, network) and returns False —
+    so callers can exit(1) instead of dumping a raw traceback.
+
+    This exists because a raw `ApiIdInvalid` traceback tells a user nothing,
+    and tells an AI agent even less.
+    """
+    try:
+        await pool.start_all()
+        return True
+    except Exception as e:
+        from tgkit.transport.errors import classify_error
+
+        info = classify_error(e)
+        name = type(e).__name__
+        msg = str(e)
+        mlow = msg.lower()
+
+        is_api_id_issue = ("ApiId" in name) or ("api_id" in mlow) or ("api hash" in mlow)
+        is_session_issue = ("Auth" in name) or ("Key" in name) or ("session" in mlow)
+        is_network_issue = ("Connection" in name) or ("timeout" in mlow) or (info.get("kind") == "transient" and "RPC" not in name)
+
+        if console is not None:
+            console.print(f"\n[red]✗[/red] Could not start MTProto sessions: [bold]{name}[/bold]: {msg[:300]}")
+            console.print("[bold]What this means / how to fix it:[/bold]")
+            if is_api_id_issue:
+                console.print("  • Your api_id / api_hash are missing or wrong.")
+                console.print("    → Get them from [cyan]https://my.telegram.org[/cyan] → API Development Tools")
+                console.print("    → Put them in the config, then re-run.")
+            elif is_session_issue:
+                console.print("  • A saved login session is stale or was revoked.")
+                console.print("    → Delete the session files and let tgkit log in again:")
+                console.print("      [cyan]rm -rf ~/.tgkit/sessions/*[/cyan]  (safe — bots re-auth from their tokens)")
+            elif is_network_issue:
+                console.print("  • Could not reach Telegram servers.")
+                console.print("    → Check your internet connection / proxy, then re-run.")
+                console.print("    → If a firewall blocks TCP 443/8443, configure a proxy.")
+            else:
+                console.print("  • An unexpected error occurred while connecting.")
+                console.print(f"    → Run [bold]tgkit doctor[/bold] for a full environment check.")
+            console.print("  • Full diagnostic:  [bold]tgkit doctor --deep[/bold]")
+        else:
+            logger.error(f"Pool startup failed: {name}: {msg}")
+        try:
+            await pool.stop_all()
+        except Exception:
+            pass
+        return False
+
+
 class AsyncBotPool:
     """Pool of Bot instances with round-robin + per-channel cooldown.
 

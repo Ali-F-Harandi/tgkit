@@ -351,6 +351,41 @@ For more: see https://github.com/Ali-F-Harandi/tgkit
     p_vault_info.add_argument("link", help="Manifest share link")
     p_vault_info.set_defaults(_handler="vault_info")
 
+    # ---- fetch (plain files by link — no 20 MB Bot API limit) ----
+    p_fetch = sub.add_parser(
+        "fetch",
+        help="Download file(s) from message links via MTProto (up to 2 GB, no 20 MB limit)",
+    )
+    p_fetch.add_argument("links", nargs="+", help="One or more t.me message links (order preserved)")
+    p_fetch.add_argument("--out", "-o", default=None,
+                         help="Output directory (default: current directory)")
+    p_fetch.add_argument("--force", "-f", action="store_true",
+                         help="Overwrite existing files (default: auto-rename)")
+    p_fetch.add_argument("--password", default=None,
+                         help="Vault password if a link turns out to be an encrypted vault manifest")
+    p_fetch.set_defaults(_handler="fetch")
+
+    # ---- send (plain upload — no 50 MB Bot API limit) ----
+    p_send = sub.add_parser(
+        "send",
+        help="Upload file(s) to a channel via MTProto (up to 2 GB each, no 50 MB limit)",
+    )
+    p_send.add_argument("files", nargs="+", help="One or more local file paths (order preserved)")
+    p_send.add_argument("--to", default=None,
+                        help="Destination channel (default: default_destination from config)")
+    p_send.add_argument("--caption", default=None,
+                        help="Caption for the uploaded document(s)")
+    p_send.set_defaults(_handler="send")
+
+    # ---- doctor (environment check with fix hints) ----
+    p_doctor = sub.add_parser(
+        "doctor",
+        help="Check the whole environment (Python, packages, config, tokens, network) and print fixes",
+    )
+    p_doctor.add_argument("--deep", action="store_true",
+                          help="Also test a real MTProto login (validates api_id/api_hash)")
+    p_doctor.set_defaults(_handler="doctor")
+
     return parser
 
 
@@ -500,6 +535,21 @@ async def dispatch(args: argparse.Namespace, config: Config, config_path: Path) 
         from tgkit.commands.vault import cmd_vault_info
         return await cmd_vault_info(args, config)
 
+    # ---- fetch ----
+    if handler == "fetch":
+        from tgkit.commands.fetch import cmd_fetch
+        return await cmd_fetch(args, config)
+
+    # ---- send ----
+    if handler == "send":
+        from tgkit.commands.send import cmd_send
+        return await cmd_send(args, config)
+
+    # ---- doctor ----
+    if handler == "doctor":
+        from tgkit.commands.doctor import cmd_doctor
+        return await cmd_doctor(args, config, config_path)
+
     console.print(f"[red]✗[/red] Unknown handler: {handler}")
     return 1
 
@@ -528,10 +578,21 @@ def main() -> None:
             sys.exit(130)
         return
 
+    # Special case: doctor must run even WITHOUT a config — diagnosing a
+    # broken/missing setup is its entire job. It reports the missing config
+    # itself instead of crashing at the front door.
+    if args._handler == "doctor" and not config_path.exists():
+        try:
+            exit_code = asyncio.run(dispatch(args, Config(), config_path))
+        except KeyboardInterrupt:
+            console.print("\n[yellow]Interrupted.[/yellow]")
+            sys.exit(130)
+        sys.exit(exit_code or 0)
+
     # Load config for all other commands
     if not config_path.exists():
         console.print(f"[red]✗[/red] Config not found at: {config_path}")
-        console.print(f"    Run [bold]tgkit init[/bold] first.")
+        console.print(f"    Run [bold]tgkit init[/bold] first, or diagnose with [bold]tgkit doctor[/bold].")
         sys.exit(1)
 
     try:
@@ -546,8 +607,16 @@ def main() -> None:
     except KeyboardInterrupt:
         console.print("\n[yellow]Interrupted.[/yellow]")
         sys.exit(130)
+    except ImportError as e:
+        # A dependency is missing (e.g. pyrofork not installed in this venv).
+        # Raw ImportError tracebacks confuse users AND agents — translate.
+        console.print(f"[red]✗[/red] Missing dependency: {e}")
+        console.print("    → Install everything:  [bold]pip install -e .[/bold]")
+        console.print("    → Then verify:         [bold]tgkit doctor[/bold]")
+        sys.exit(1)
     except Exception as e:
         console.print(f"[red]✗[/red] Error: {type(e).__name__}: {e}")
+        console.print("    → Full diagnostic: [bold]tgkit doctor[/bold]")
         logger.exception("Command failed")
         sys.exit(1)
 

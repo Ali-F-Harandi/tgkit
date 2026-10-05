@@ -12,8 +12,9 @@ from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn, TimeRemainingColumn
 
 from tgkit.config.schema import Config
-from tgkit.models.link import parse_channel_ref
-from tgkit.transport.bot_pool import AsyncBotPool
+from tgkit.limits import human_size, upload_note, VAULT_CHUNK_MB, BOT_API_MAX_UPLOAD
+from tgkit.models.link import parse_channel_ref, parse_link
+from tgkit.transport.bot_pool import AsyncBotPool, start_pool_with_help
 from tgkit.vault.uploader import VaultUploader
 from tgkit.vault.downloader import VaultDownloader
 from tgkit.db.connection import get_db
@@ -66,6 +67,15 @@ async def cmd_vault_upload(args: argparse.Namespace, config: Config, config_path
     console.print(f"  Encrypted:  [cyan]{'yes' if password else 'no'}[/cyan]")
     console.print(f"  Compressed: [cyan]{'yes' if not args.no_compress else 'no'}[/cyan]")
 
+    # ── Size routing notes (educate while uploading) ──
+    if file_size > BOT_API_MAX_UPLOAD:
+        console.print(
+            f"  [yellow]⚠[/yellow] {human_size(file_size)} is over the Bot API's 50 MB "
+            f"upload cap — no problem here: vault splits it into {total_chunks} × "
+            f"{VAULT_CHUNK_MB} MB chunks and sends each via MTProto (limit: 2 GB per "
+            f"chunk, so the TOTAL file size is unlimited)."
+        )
+
     # Start pool
     pool = AsyncBotPool(
         tokens=config.bot_tokens,
@@ -75,7 +85,8 @@ async def cmd_vault_upload(args: argparse.Namespace, config: Config, config_path
     )
 
     console.print(f"\n[bold]Starting {pool.size} bots...[/bold]")
-    await pool.start_all()
+    if not await start_pool_with_help(pool, console):
+        return 1
 
     if isinstance(dest_channel, int):
         await pool.resolve_peer_all(dest_channel)
@@ -136,6 +147,93 @@ async def cmd_vault_upload(args: argparse.Namespace, config: Config, config_path
         return 1
 
 
+async def _plain_fallback(pool: AsyncBotPool, link: str, args: argparse.Namespace) -> int | None:
+    """If `vault download` was pointed at a PLAIN file, download it directly.
+
+    Returns an exit code when the fallback resolved the situation
+    (downloaded or clearly failed), or None when the message really is not
+    downloadable media — in which case the caller continues with the normal
+    (failing) vault path.
+    """
+    from tgkit.commands.fetch import _media_of, _filename_for, _unique_path
+    from tgkit.limits import download_note
+
+    try:
+        channel_id, msg_id = parse_link(link)
+    except ValueError:
+        return None
+
+    bot = await pool.get_next()
+    try:
+        msg = await bot.call(lambda: bot.client.raw.get_messages(channel_id, msg_id))
+    except Exception:
+        return None
+    if msg is None or getattr(msg, "empty", False):
+        return None
+
+    media = _media_of(msg)
+    if media is None:
+        return None
+
+    size = getattr(media, "file_size", None) or 0
+    fname = _filename_for(msg, media)
+
+    console.print(
+        f"  [yellow]⚠[/yellow] This link is a [bold]plain file[/bold] "
+        f"({fname}, {human_size(size)}), not a vault manifest — the old tgkit "
+        f"would crash here with 'Failed to fetch or parse manifest'."
+    )
+    console.print(
+        f"  [cyan]ℹ[/cyan] Switching to direct download automatically. "
+        f"(Next time you can just use: [bold]tgkit fetch {link}[/bold])"
+    )
+
+    note = download_note(size)
+    if note:
+        console.print(f"  [yellow]⚠[/yellow] {note}")
+
+    if args.output:
+        target = Path(args.output).expanduser()
+        target.parent.mkdir(parents=True, exist_ok=True)
+    elif args.output_dir:
+        target = Path(args.output_dir).expanduser() / fname
+        target.parent.mkdir(parents=True, exist_ok=True)
+    else:
+        target = Path.cwd() / fname
+    # Plain-file mode has no resume state — just pick a free name.
+    target = _unique_path(target)
+
+    from rich.progress import (
+        Progress, SpinnerColumn, TextColumn, BarColumn,
+        TaskProgressColumn, TimeRemainingColumn, DownloadColumn,
+    )
+    try:
+        with Progress(
+            SpinnerColumn(), TextColumn("[progress.description]{task.description}"),
+            BarColumn(), TaskProgressColumn(), DownloadColumn(), TimeRemainingColumn(),
+            console=console,
+        ) as progress:
+            task = progress.add_task(f"↓ {fname}", total=size or None)
+
+            def on_progress(current: int, total: int) -> None:
+                progress.update(task, completed=current, total=total)
+
+            path = await bot.call(
+                lambda: bot.client.raw.download_media(
+                    msg, file_name=str(target), progress=on_progress
+                )
+            )
+        final = Path(path) if path else target
+        console.print(f"\n[green]✓[/green] Download complete!")
+        console.print(f"  Output:   [bold]{final}[/bold]")
+        console.print(f"  Size:     {final.stat().st_size:,} bytes")
+        return 0
+    except Exception as e:
+        console.print(f"\n[red]✗[/red] Direct download failed: {type(e).__name__}: {e}")
+        console.print(f"    → Try instead: [bold]tgkit fetch {link}[/bold]")
+        return 1
+
+
 async def cmd_vault_download(args: argparse.Namespace, config: Config) -> int:
     """Download a vault file from a manifest link."""
     report = detect_capabilities(config)
@@ -164,7 +262,8 @@ async def cmd_vault_download(args: argparse.Namespace, config: Config) -> int:
     )
 
     console.print(f"\n[bold]Starting {pool.size} bots...[/bold]")
-    await pool.start_all()
+    if not await start_pool_with_help(pool, console):
+        return 1
 
     try:
         downloader = VaultDownloader(pool, config)
@@ -181,6 +280,15 @@ async def cmd_vault_download(args: argparse.Namespace, config: Config) -> int:
                 import getpass
                 password = getpass.getpass("Password: ")
         else:
+            # ── Smart fallback: plain file? download it directly. ──
+            # "vault download <plain-file-link>" used to die with the cryptic
+            # "Failed to fetch or parse manifest". Now we look at the message:
+            # if it is a normal document/photo/video we just download it —
+            # the outcome the user obviously wanted.
+            fallback = await _plain_fallback(pool, link, args)
+            if fallback is not None:
+                await pool.stop_all()
+                return fallback
             console.print(f"[yellow]⚠[/yellow] Could not fetch manifest — attempting download anyway...")
 
         with Progress(

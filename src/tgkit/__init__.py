@@ -18,7 +18,7 @@ def _get_version() -> str:
             pass
     except ImportError:
         pass
-    return "0.2.1"  # fallback for source checkouts without metadata
+    return "0.3.0"  # fallback for source checkouts without metadata
 
 
 __version__ = _get_version()
